@@ -1,20 +1,51 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# 🌙 Pulwama Iftaar Countdown
 
-# Run and deploy your AI Studio app
+A beautiful Ramadan countdown web app for **Pulwama, Kashmir**.
 
-This contains everything you need to run your app locally.
+🔗 Live Site: https://pulwama.netlify.app
 
-View your app in AI Studio: https://ai.studio/apps/03046069-c9af-4030-9651-f21429232634
+---
 
-## Run Locally
+## ✨ Features
 
-**Prerequisites:**  Node.js
+- 🕌 Live Iftaar countdown timer
+- 📅 Real-time date and time display
+- 🌌 Elegant Ramadan-themed UI
+- ⚡ Fast and responsive design
+- 📍 Location focused: Pulwama, Kashmir
 
+---
 
-1. Install dependencies:
+## 🚀 Run Locally
+
+### Requirements
+- Node.js installed
+
+### Steps
+
+1. Install dependencies  
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+
+2. Start development server  
    `npm run dev`
+
+3. Build for production  
+   `npm run build`
+
+---
+
+## 🌐 Deployment
+
+This project is deployed on **Netlify**.
+
+Every push to GitHub can automatically update the live site.
+
+---
+
+## 📌 Project Purpose
+
+This project was built to provide an accurate and visually appealing Iftaar countdown experience for the people of Pulwama during Ramadan.
+
+---
+
+### 🌙 Ramadan Mubarak
