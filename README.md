@@ -1,1 +1,1 @@
-(https://pulwama.netlify.app/)
+https://pulwama.netlify.app
