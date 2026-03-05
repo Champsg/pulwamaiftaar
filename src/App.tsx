@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Moon, Sun, Clock, MapPin, Calendar, ChevronDown, ChevronUp, Bell, Share2 } from 'lucide-react';
-import { RAMADAN_TIMETABLE, RamadanDay } from './constants';
+import { Moon, Sun, Clock, MapPin, Calendar, ChevronDown, ChevronUp, Bell, Share2, Settings, X } from 'lucide-react';
+import { RAMADAN_TIMETABLE, RamadanDay, REGIONS, Region } from './constants';
 import FastingProgress from './components/FastingProgress';
 import useLaylatulQadrMode from './hooks/useLaylatulQadrMode';
 import useTimeSpeedPerceptionMode from './hooks/useTimeSpeedPerceptionMode';
 import ClickableMoon from './components/ClickableMoon';
+import DuasCard from './components/DuasCard';
 
 // Helper to parse time string like "05:49 AM" into a Date object for today
 const parseTime = (timeStr: string, dateStr: string) => {
@@ -17,6 +18,33 @@ const parseTime = (timeStr: string, dateStr: string) => {
   if (modifier === 'AM' && hours === 12) hours = 0;
 
   return new Date(year, month - 1, day, hours, minutes, 0);
+};
+
+// Helper to add offset to a time string
+const applyOffset = (timeStr: string, offsetMinutes: number) => {
+  const [time, modifier] = timeStr.split(' ');
+  let [hours, minutes] = time.split(':').map(Number);
+
+  if (modifier === 'PM' && hours < 12) hours += 12;
+  if (modifier === 'AM' && hours === 12) hours = 0;
+
+  const date = new Date(2026, 0, 1, hours, minutes + offsetMinutes);
+  let newH = date.getHours();
+  let newM = date.getMinutes();
+  const newAmpm = newH >= 12 ? 'PM' : 'AM';
+  newH = newH % 12;
+  newH = newH ? newH : 12;
+  return String(newH).padStart(2, '0') + ':' + String(newM).padStart(2, '0') + ' ' + newAmpm;
+};
+
+// Helper to reliably get local storage values
+const getStoredVal = <T,>(key: string, defaultVal: T): T => {
+  try {
+    const item = window.localStorage.getItem(key);
+    return item ? JSON.parse(item) : defaultVal;
+  } catch {
+    return defaultVal;
+  }
 };
 
 const LanternSVG = ({ className, style }: { className?: string, style?: any, key?: any }) => (
@@ -34,8 +62,28 @@ const LanternSVG = ({ className, style }: { className?: string, style?: any, key
 
 export default function App() {
   const [now, setNow] = useState(new Date());
-  const [showFullTable, setShowFullTable] = useState(false);
-  const tableRef = useRef<HTMLDivElement>(null);
+
+  const [selectedRegion, setSelectedRegion] = useState<Region>(() => {
+    const stored = getStoredVal<Region | null>('ramadan_region', null);
+    if (stored) {
+      const found = REGIONS.find(r => r.name === stored.name);
+      if (found) return found;
+    }
+    return REGIONS[1];
+  });
+
+  const [showSettings, setShowSettings] = useState(false);
+  const [animationStyle, setAnimationStyle] = useState(() => getStoredVal('ramadan_anim', 'none'));
+  const [showVisualEffects, setShowVisualEffects] = useState(() => getStoredVal('ramadan_visuals', true));
+  const [showDuas, setShowDuas] = useState(() => getStoredVal('ramadan_duas', true));
+
+  // Save settings automatically
+  useEffect(() => {
+    window.localStorage.setItem('ramadan_region', JSON.stringify(selectedRegion));
+    window.localStorage.setItem('ramadan_anim', JSON.stringify(animationStyle));
+    window.localStorage.setItem('ramadan_visuals', JSON.stringify(showVisualEffects));
+    window.localStorage.setItem('ramadan_duas', JSON.stringify(showDuas));
+  }, [selectedRegion, animationStyle, showVisualEffects, showDuas]);
 
   // Generate random stars once
   const stars = useMemo(() => {
@@ -54,10 +102,18 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  const activeTimetable = useMemo(() => {
+    return RAMADAN_TIMETABLE.map(day => ({
+      ...day,
+      sehri: applyOffset(day.sehri, selectedRegion.offset),
+      iftar: applyOffset(day.iftar, selectedRegion.offset)
+    }));
+  }, [selectedRegion]);
+
   const currentDayData = useMemo(() => {
     const todayStr = now.toLocaleDateString('en-GB').replace(/\//g, '-');
-    return RAMADAN_TIMETABLE.find(d => d.date === todayStr) || null;
-  }, [now]);
+    return activeTimetable.find(d => d.date === todayStr) || null;
+  }, [now, activeTimetable]);
 
   const nextEvent = useMemo(() => {
     if (currentDayData) {
@@ -72,7 +128,7 @@ export default function App() {
       }
     }
 
-    const nextDay = RAMADAN_TIMETABLE.find(d => {
+    const nextDay = activeTimetable.find(d => {
       const dDate = parseTime(d.sehri, d.date);
       return dDate > now;
     });
@@ -192,18 +248,9 @@ export default function App() {
     }
   }, [nextEvent]);
 
-  const toggleTable = () => {
-    setShowFullTable(!showFullTable);
-    if (!showFullTable) {
-      setTimeout(() => {
-        tableRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }, 100);
-    }
-  };
-
   const handleShare = async () => {
     if (!currentDayData) return;
-    const message = `Ramadan Timetable for Pulwama (Today, ${currentDayData.date}):\nSehri Ends: ${currentDayData.sehri}\nIftar Starts: ${currentDayData.iftar}\n\nCheck the full timetable here: ${window.location.href}`;
+    const message = `Ramadan Timetable for ${selectedRegion.name} (Fiqah Hanafiya - Dar-ul-uloom Raheemiya)\nToday, ${currentDayData.date}:\nSehri Ends: ${currentDayData.sehri}\nIftar Starts: ${currentDayData.iftar}\n\nCheck the full timetable here: ${window.location.href}`;
 
     if (navigator.share) {
       try {
@@ -307,15 +354,35 @@ export default function App() {
         .progress-fill-complete {
           box-shadow: 0 0 25px rgba(255,215,0,1);
         }
+        @keyframes fadeIn {
+          0% { opacity: 0; filter: blur(2px); transform: translateY(-2px); }
+          100% { opacity: 1; filter: blur(0px); transform: translateY(0); }
+        }
+        .animate-fade {
+          animation: fadeIn 0.3s ease-out forwards;
+          display: inline-block;
+          will-change: opacity, filter, transform;
+        }
         @keyframes flipVertical {
           0% { transform: perspective(400px) rotateX(-90deg); opacity: 0; transform-origin: top; }
           100% { transform: perspective(400px) rotateX(0deg); opacity: 1; transform-origin: top; }
         }
-        .animate-flip {
-          animation: flipVertical 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
-          display: inline-block;
-          backface-visibility: hidden;
+        .animate-flip { animation: flipVertical 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; display: inline-block; backface-visibility: hidden; will-change: transform, opacity; }
+
+        @keyframes popIn {
+          0% { transform: scale(0.8); opacity: 0; filter: blur(4px); }
+          50% { transform: scale(1.05); filter: blur(0px); }
+          100% { transform: scale(1); opacity: 1; filter: blur(0px); }
         }
+        .animate-pop { animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; display: inline-block; will-change: transform, opacity, filter; }
+
+        @keyframes slideUp {
+          0% { transform: translateY(20px); opacity: 0; }
+          100% { transform: translateY(0); opacity: 1; }
+        }
+        .animate-slide-up { animation: slideUp 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; display: inline-block; will-change: transform, opacity; }
+
+        .animate-none { display: inline-block; }
         .glow-solid-1h { box-shadow: 0 0 30px rgba(212,175,55,0.15) !important; transition: box-shadow 1s ease; }
         .glow-pulse-15m { animation: pulse15m 3s infinite alternate; }
         .glow-pulse-1m { animation: pulse1m 1.5s infinite alternate; }
@@ -421,87 +488,91 @@ export default function App() {
         }
       `}</style>
 
-      {/* Starry Background */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-        {stars.map((star) => (
-          <div
-            key={star.id}
-            className="star"
-            style={{
-              top: star.top,
-              left: star.left,
-              width: `${star.size}px`,
-              height: `${star.size}px`,
-              '--duration': star.duration,
-              '--delay': star.delay,
-            } as any}
-          />
-        ))}
-      </div>
+      {showVisualEffects && (
+        <>
+          {/* Starry Background */}
+          <div className="fixed inset-0 pointer-events-none z-0">
+            {stars.map((star) => (
+              <div
+                key={star.id}
+                className="star"
+                style={{
+                  top: star.top,
+                  left: star.left,
+                  width: `${star.size}px`,
+                  height: `${star.size}px`,
+                  '--duration': star.duration,
+                  '--delay': star.delay,
+                } as any}
+              />
+            ))}
+          </div>
 
-      <div className={`lq-overlay ${lqModeActive ? 'opacity-100' : 'opacity-0'}`} />
-      <div className="perception-overlay" />
+          <div className={`lq-overlay ${lqModeActive ? 'opacity-100' : 'opacity-0'}`} />
+          <div className="perception-overlay" />
 
-      {/* LQ Extra Stars */}
-      <div className={`fixed inset-0 pointer-events-none z-0 transition-opacity duration-[3s] ${lqModeActive ? 'opacity-100' : 'opacity-0'}`}>
-        {lqStars.map((star) => (
-          <div
-            key={star.id}
-            className="star lq-twinkle absolute"
-            style={{
-              top: star.top,
-              left: star.left,
-              width: `${star.size}px`,
-              height: `${star.size}px`,
-              animationDuration: star.duration,
-              animationDelay: star.delay,
-            } as any}
-          />
-        ))}
-      </div>
+          {/* LQ Extra Stars */}
+          <div className={`fixed inset-0 pointer-events-none z-0 transition-opacity duration-[3s] ${lqModeActive ? 'opacity-100' : 'opacity-0'}`}>
+            {lqStars.map((star) => (
+              <div
+                key={star.id}
+                className="star lq-twinkle absolute"
+                style={{
+                  top: star.top,
+                  left: star.left,
+                  width: `${star.size}px`,
+                  height: `${star.size}px`,
+                  animationDuration: star.duration,
+                  animationDelay: star.delay,
+                } as any}
+              />
+            ))}
+          </div>
 
-      {/* Star Progress Counter */}
-      <div id="star-sky" className="fixed inset-0 pointer-events-none z-0">
-        {progressStars.map((star, i) => {
-          const isVisible = fastProgress.isFasting && i < fastProgress.completedHours;
-          const isMagicHour = fastProgress.percent > 80;
-          return (
-            <div
-              key={star.id}
-              className={`progress-star ${isVisible ? 'is-visible opacity-100 scale-100' : 'opacity-0 scale-50'}`}
-              style={{
-                top: star.top,
-                left: star.left,
-                animationDelay: star.delay,
-                boxShadow: isMagicHour ? '0 0 12px 2px rgba(212,175,55,0.8)' : '0 0 6px 1px rgba(255,255,255,0.4)',
-                background: isMagicHour ? '#FFD700' : '#FFF'
-              } as any}
-            />
-          );
-        })}
-        {/* Magic Moon */}
-        <div className={`magic-moon ${fastProgress.isFasting && fastProgress.percent > 80 ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
-          <Moon className="w-32 h-32 sm:w-48 sm:h-48" strokeWidth={0.5} />
-        </div>
-      </div>
+          {/* Star Progress Counter */}
+          <div id="star-sky" className="fixed inset-0 pointer-events-none z-0">
+            {progressStars.map((star, i) => {
+              const isVisible = fastProgress.isFasting && i < fastProgress.completedHours;
+              const isMagicHour = fastProgress.percent > 80;
+              return (
+                <div
+                  key={star.id}
+                  className={`progress-star ${isVisible ? 'is-visible opacity-100 scale-100' : 'opacity-0 scale-50'}`}
+                  style={{
+                    top: star.top,
+                    left: star.left,
+                    animationDelay: star.delay,
+                    boxShadow: isMagicHour ? '0 0 12px 2px rgba(212,175,55,0.8)' : '0 0 6px 1px rgba(255,255,255,0.4)',
+                    background: isMagicHour ? '#FFD700' : '#FFF'
+                  } as any}
+                />
+              );
+            })}
+            {/* Magic Moon */}
+            <div className={`magic-moon ${fastProgress.isFasting && fastProgress.percent > 80 ? 'opacity-100 scale-100' : 'opacity-0 scale-90'}`}>
+              <Moon className="w-32 h-32 sm:w-48 sm:h-48" strokeWidth={0.5} />
+            </div>
+          </div>
 
-      {/* Floating Lanterns */}
-      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-        {lanterns.map((lantern) => (
-          <LanternSVG
-            key={lantern.id}
-            className="lantern-float absolute text-ramadan-gold"
-            style={{
-              left: lantern.left,
-              bottom: '-50px',
-              width: `${lantern.size}px`,
-              height: `${lantern.size}px`,
-              animationDuration: lantern.duration,
-              animationDelay: lantern.delay,
-            } as any}
-          />
-        ))}
-      </div>
+          {/* Floating Lanterns */}
+          <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+            {lanterns.map((lantern) => (
+              <LanternSVG
+                key={lantern.id}
+                className="lantern-float absolute text-ramadan-gold"
+                style={{
+                  left: lantern.left,
+                  bottom: '-50px',
+                  width: `${lantern.size}px`,
+                  height: `${lantern.size}px`,
+                  animationDuration: lantern.duration,
+                  animationDelay: lantern.delay,
+                } as any}
+              />
+            ))}
+          </div>
+        </>
+      )}
 
       {/* Skip Link for Accessibility */}
       <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 z-50 bg-ramadan-gold text-ramadan-deep px-4 py-2 rounded-lg font-bold">
@@ -518,10 +589,26 @@ export default function App() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.2 }}
-          className="flex items-center justify-center gap-2 mb-3"
+          className="flex flex-col items-center justify-center gap-2 mb-4"
         >
-          <MapPin className="w-4 h-4 text-ramadan-gold" aria-hidden="true" />
-          <span className="text-xs uppercase tracking-[0.2em] font-bold text-ramadan-accent">Pulwama, Kashmir</span>
+          <div className="flex items-center gap-2 relative z-50">
+            <MapPin className="w-4 h-4 text-ramadan-gold shrink-0" aria-hidden="true" />
+            <div className="relative">
+              <select
+                value={selectedRegion.name}
+                onChange={(e) => setSelectedRegion(REGIONS.find(r => r.name === e.target.value) || REGIONS[1])}
+                className="bg-transparent text-xs sm:text-[13px] uppercase tracking-[0.05em] font-black text-white/90 outline-none cursor-pointer appearance-none pr-5 hover:text-ramadan-gold transition-colors border-b border-dashed border-white/20 pb-0.5 max-w-[200px] sm:max-w-none text-ellipsis"
+              >
+                {REGIONS.map(r => (
+                  <option key={r.name} value={r.name} className="bg-ramadan-deep text-white">{r.name}</option>
+                ))}
+              </select>
+              <ChevronDown className="w-3 h-3 text-ramadan-gold absolute right-0 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+          </div>
+          <span className="text-[10px] sm:text-xs text-ramadan-gold/80 italic font-serif border border-ramadan-gold/20 px-3 py-1 rounded-full bg-white/[0.02] backdrop-blur-sm shadow-[0_0_10px_rgba(212,175,55,0.05)] mt-1">
+            Based on Fiqah Hanafiya (Dar-ul-uloom Raheemiya)
+          </span>
         </motion.div>
         <motion.h1
           initial={{ opacity: 0, scale: 0.9 }}
@@ -591,32 +678,34 @@ export default function App() {
                   <motion.button
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
-                    onClick={handleShare}
+                    onClick={() => setShowSettings(true)}
                     className="btn-shimmer p-2 rounded-full bg-white/5 border border-white/10 text-ramadan-gold hover:bg-ramadan-gold/20 transition-colors"
-                    title="Share today's times"
-                    aria-label="Share today's Sehri and Iftar times"
+                    title="Settings"
+                    aria-label="Settings"
                   >
-                    <Share2 className="w-4 h-4" />
+                    <Settings className="w-4 h-4" />
                   </motion.button>
                 </div>
 
                 <div className={`mb-10 relative flex justify-center items-center ${isExploding ? 'timer-explosion' : ''}`}>
                   {/* Particle Layer */}
-                  <div id="particle-layer" className="absolute inset-0 pointer-events-none z-0 overflow-visible flex justify-center items-center">
-                    {particles.map(p => (
-                      <div
-                        key={p.id}
-                        className="timer-particle"
-                        style={{
-                          width: `${p.size}px`,
-                          height: `${p.size}px`,
-                          '--dx': `${p.dx}px`,
-                          '--dy': `${p.dy}px`,
-                          '--duration': `${p.duration}s`,
-                        } as any}
-                      />
-                    ))}
-                  </div>
+                  {showVisualEffects && (
+                    <div id="particle-layer" className="absolute inset-0 pointer-events-none z-0 overflow-visible flex justify-center items-center">
+                      {particles.map(p => (
+                        <div
+                          key={p.id}
+                          className="timer-particle"
+                          style={{
+                            width: `${p.size}px`,
+                            height: `${p.size}px`,
+                            '--dx': `${p.dx}px`,
+                            '--dy': `${p.dy}px`,
+                            '--duration': `${p.duration}s`,
+                          } as any}
+                        />
+                      ))}
+                    </div>
+                  )}
 
                   <div className={`relative z-10 flex justify-center items-center gap-3 sm:gap-8 p-4 ${isPerceptionActive ? 'perception-heartbeat' : ''}`} aria-label={`Time remaining: ${countdown?.hours} hours, ${countdown?.minutes} minutes, and ${countdown?.seconds} seconds`}>
                     {[
@@ -626,7 +715,7 @@ export default function App() {
                     ].map((item, idx) => (
                       <div key={item.label} className="flex items-center gap-3 sm:gap-8">
                         <div className={`flex flex-col items-center transition-transform duration-500 ease-out ${isPerceptionActive ? 'scale-[1.06]' : 'scale-100'}`}>
-                          <span key={item.val} className="animate-flip text-5xl sm:text-8xl font-sans font-semibold text-white tabular-nums leading-none tracking-tighter block">
+                          <span key={item.val} className={`animate-${animationStyle} text-5xl sm:text-8xl font-sans font-semibold text-white tabular-nums leading-none tracking-tighter block`}>
                             {String(item.val).padStart(2, '0')}
                           </span>
                           <span className="text-[9px] uppercase tracking-[0.2em] font-black text-ramadan-accent mt-3">{item.label}</span>
@@ -680,6 +769,13 @@ export default function App() {
                   </motion.div>
                 </div>
 
+                {showDuas && (
+                  <div className="mt-8 sm:mt-10 pt-8 sm:pt-10 border-t border-white/5">
+                    {/* Duas Section */}
+                    <DuasCard />
+                  </div>
+                )}
+
                 <div className="mt-8 sm:mt-10 pt-8 sm:pt-10 border-t border-white/5">
                   {/* Fasting Progress Crescent Grid */}
                   <FastingProgress currentDay={currentDayData?.day || 0} />
@@ -695,127 +791,111 @@ export default function App() {
         </motion.div>
       </main>
 
-      {/* Timetable Section */}
-      <section className="w-full max-w-4xl relative z-10" aria-labelledby="calendar-heading">
-        <div className="flex flex-col sm:flex-row items-center justify-between mb-8 px-4 gap-4">
-          <h2 id="calendar-heading" className="text-2xl sm:text-3xl font-serif text-white">
-            Ramadan <span className="italic text-ramadan-gold">Calendar</span>
-          </h2>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={toggleTable}
-            aria-expanded={showFullTable}
-            aria-controls="timetable-container"
-            className="btn-shimmer w-full sm:w-auto flex items-center justify-center gap-3 px-6 py-3 rounded-full bg-ramadan-gold/10 border border-ramadan-gold/20 text-[10px] font-black uppercase tracking-[0.2em] text-ramadan-gold hover:bg-ramadan-gold hover:text-ramadan-deep transition-all active:scale-95 focus-visible:ring-2 focus-visible:ring-ramadan-gold"
-          >
-            {showFullTable ? 'Hide Timetable' : 'View Timetable'}
-            {showFullTable ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-          </motion.button>
-        </div>
-
-        <AnimatePresence>
-          {showFullTable && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.4, ease: "easeInOut" }}
-              ref={tableRef}
-              id="timetable-container"
-              className="overflow-hidden rounded-[1.5rem] sm:rounded-[2.5rem] glass-card"
-            >
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[400px]" role="table">
-                  <thead>
-                    <tr className="bg-white/[0.02]">
-                      <th scope="col" className="px-2 sm:px-6 py-5 text-[8px] sm:text-[9px] uppercase tracking-[0.1em] sm:tracking-[0.2em] font-black text-ramadan-accent border-b border-white/5 whitespace-nowrap">Day</th>
-                      <th scope="col" className="px-2 sm:px-6 py-5 text-[8px] sm:text-[9px] uppercase tracking-[0.1em] sm:tracking-[0.2em] font-black text-ramadan-accent border-b border-white/5 whitespace-nowrap">Date</th>
-                      <th scope="col" className="px-2 sm:px-6 py-5 text-[8px] sm:text-[9px] uppercase tracking-[0.1em] sm:tracking-[0.2em] font-black text-ramadan-accent border-b border-white/5 whitespace-nowrap">Sehri Ends</th>
-                      <th scope="col" className="px-2 sm:px-6 py-5 text-[8px] sm:text-[9px] uppercase tracking-[0.1em] sm:tracking-[0.2em] font-black text-ramadan-accent border-b border-white/5 whitespace-nowrap">Iftar Starts</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {RAMADAN_TIMETABLE.map((day, index) => {
-                      const isToday = day.date === now.toLocaleDateString('en-GB').replace(/\//g, '-');
-                      return (
-                        <motion.tr
-                          key={day.day}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{
-                            opacity: 1,
-                            x: 0,
-                            backgroundColor: isToday ? "rgba(212, 175, 55, 0.15)" : "rgba(255, 255, 255, 0)"
-                          }}
-                          transition={{
-                            delay: index * 0.02,
-                            backgroundColor: isToday ? {
-                              duration: 2,
-                              repeat: Infinity,
-                              repeatType: "reverse"
-                            } : { duration: 0.3 }
-                          }}
-                          className={`group transition-colors ${isToday ? '' : 'hover:bg-white/[0.02]'}`}
-                          aria-current={isToday ? 'date' : undefined}
-                        >
-                          <td className="px-2 sm:px-6 py-5 font-mono text-[10px] sm:text-xs text-ramadan-accent/60 whitespace-nowrap">
-                            {String(day.day).padStart(2, '0')}
-                          </td>
-                          <td className="px-2 sm:px-6 py-5 whitespace-nowrap">
-                            <div className="flex items-center gap-2">
-                              <span className={`text-xs sm:text-sm font-semibold ${isToday ? 'text-white' : 'text-gray-400'}`}>
-                                {day.date}
-                              </span>
-                              {isToday && (
-                                <motion.span
-                                  animate={{ scale: [1, 1.1, 1] }}
-                                  transition={{ duration: 2, repeat: Infinity }}
-                                  className="px-1.5 py-0.5 rounded text-[7px] font-black bg-ramadan-gold text-ramadan-deep uppercase tracking-tighter shadow-[0_0_10px_rgba(212,175,55,0.5)]"
-                                >
-                                  Today
-                                </motion.span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="px-2 sm:px-6 py-5 font-sans text-sm sm:text-lg font-medium text-white group-hover:text-ramadan-gold transition-colors whitespace-nowrap">
-                            {day.sehri}
-                          </td>
-                          <td className="px-2 sm:px-6 py-5 font-sans text-sm sm:text-lg font-medium text-white group-hover:text-ramadan-gold transition-colors whitespace-nowrap">
-                            {day.iftar}
-                          </td>
-                        </motion.tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <div className="sm:hidden text-center py-2 text-[8px] uppercase tracking-widest text-ramadan-accent/40 bg-white/[0.01]">
-                ← Scroll horizontally to see Iftar time →
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </section>
-
-      {/* Mobile-only Card View for Timetable (Optional but good for UX) */}
-      <div className="sm:hidden w-full mt-4 flex flex-col gap-3">
-        {/* This is already handled by the scrollable table, but we could add more mobile-specific tweaks if needed */}
-      </div>
-
       {/* Footer */}
       <footer className="mt-16 sm:mt-24 text-center px-4">
         <div className="w-12 h-px bg-ramadan-gold/20 mx-auto mb-8"></div>
         <p className="text-[9px] uppercase tracking-[0.3em] font-black text-ramadan-accent/40 leading-loose">
-          © 2026 Ramadan Timetable • Pulwama, Kashmir
+          © 2026 Ramadan Timetable • {selectedRegion.name}
           <br />
-          <span className="italic font-serif normal-case tracking-normal text-xs mt-2 block">
-            "O you who have believed, decreed upon you is fasting as it was decreed upon those before you that you may become righteous."
+          <span className="italic font-serif normal-case tracking-normal text-xs mt-2 block opacity-70">
+            Timings are based on Fiqah Hanafiya (Dar-ul-uloom Raheemiya)
           </span>
         </p>
         <p className="mt-8 text-[10px] uppercase tracking-[0.2em] font-bold text-ramadan-gold/60">
           Made with AI by Shujaat ❤️
         </p>
       </footer>
+
+      {/* Settings Modal */}
+      <AnimatePresence>
+        {showSettings && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+            onClick={() => setShowSettings(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-ramadan-deep border border-ramadan-gold/20 p-6 sm:p-8 rounded-3xl w-full max-w-sm relative shadow-[0_0_40px_rgba(212,175,55,0.15)] glow-pulse-1m"
+              onClick={e => e.stopPropagation()}
+            >
+              <button
+                onClick={() => setShowSettings(false)}
+                className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <h3 className="text-xl sm:text-2xl font-serif text-white mb-8 flex items-center gap-3 border-b border-white/10 pb-4">
+                <Settings className="w-5 h-5 text-ramadan-gold" />
+                Timetable Settings
+              </h3>
+
+              <div className="space-y-6">
+                <div>
+                  <label className="block text-[10px] sm:text-xs uppercase tracking-[0.2em] font-black text-ramadan-accent mb-3 flex items-center gap-2">
+                    <Clock className="w-3 h-3" />
+                    Timer Animation
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={animationStyle}
+                      onChange={(e) => setAnimationStyle(e.target.value)}
+                      className="w-full bg-white/[0.03] border border-white/10 rounded-xl px-4 py-3.5 text-white appearance-none outline-none hover:bg-white/[0.05] focus:border-ramadan-gold/50 cursor-pointer text-sm sm:text-base transition-colors"
+                    >
+                      <option value="none" className="bg-ramadan-deep text-white">None (Default)</option>
+                      <option value="fade" className="bg-ramadan-deep text-white">Fade In</option>
+                      <option value="pop" className="bg-ramadan-deep text-white">Pop & Scale</option>
+                      <option value="flip" className="bg-ramadan-deep text-white">3D Flip</option>
+                      <option value="slide-up" className="bg-ramadan-deep text-white">Slide Up</option>
+                    </select>
+                    <ChevronDown className="w-4 h-4 text-ramadan-gold absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                  <p className="text-[10px] text-gray-500 mt-2 italic px-1">Choose how the numbers change every second.</p>
+                </div>
+
+                <div className="flex items-center justify-between py-2 border-t border-white/5 pt-4">
+                  <div>
+                    <span className="block text-sm font-semibold text-white">Visual Effects</span>
+                    <span className="text-[10px] text-gray-400">Stars, magic moon, and particles</span>
+                  </div>
+                  <button
+                    onClick={() => setShowVisualEffects(!showVisualEffects)}
+                    className={`relative w-12 h-6 rounded-full transition-colors duration-300 ease-in-out ${showVisualEffects ? 'bg-ramadan-gold' : 'bg-white/10'}`}
+                  >
+                    <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform duration-300 ease-in-out shadow-sm ${showVisualEffects ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between py-2 border-t border-white/5 pt-4">
+                  <div>
+                    <span className="block text-sm font-semibold text-white">Iftar Duas</span>
+                    <span className="text-[10px] text-gray-400">Show dua section below countdown</span>
+                  </div>
+                  <button
+                    onClick={() => setShowDuas(!showDuas)}
+                    className={`relative w-12 h-6 rounded-full transition-colors duration-300 ease-in-out ${showDuas ? 'bg-ramadan-gold' : 'bg-white/10'}`}
+                  >
+                    <div className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-transform duration-300 ease-in-out shadow-sm ${showDuas ? 'translate-x-6' : 'translate-x-0'}`}></div>
+                  </button>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowSettings(false)}
+                className="w-full mt-8 btn-shimmer py-3.5 rounded-xl bg-ramadan-gold text-sm font-black uppercase tracking-[0.2em] text-ramadan-deep hover:bg-[#FFE66D] shadow-[0_0_15px_rgba(212,175,55,0.3)] hover:shadow-[0_0_25px_rgba(212,175,55,0.5)] transition-all active:scale-95"
+              >
+                Save & Close
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
